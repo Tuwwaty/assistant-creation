@@ -1,23 +1,75 @@
 import streamlit as st
 
-st.title("Assistant de création - V1")
+st.set_page_config(page_title="Assistant de création", layout="centered")
 
-start = st.time_input("Début travail")
-end = st.time_input("Fin travail")
+st.title("🧠 Assistant de création - V2")
 
-trajet = st.number_input("Temps de trajet total (heures)", 0.0, 5.0, 1.0)
-sommeil = st.number_input("Sommeil estimé (heures)", 0, 12, 8)
+# -------------------------
+# CONTEXTE (simple V1.5)
+# -------------------------
 
-work_hours = (end.hour + end.minute/60) - (start.hour + start.minute/60)
+st.subheader("📊 Contexte du jour")
 
-temps_libre = 24 - work_hours - trajet - sommeil
+temps_libre = st.number_input("Temps libre estimé (heures)", 0.0, 12.0, 3.0)
 
-st.subheader("Résultats")
-st.write(f"Temps libre brut : {temps_libre:.2f}h")
+fatigue = st.selectbox(
+    "Niveau de fatigue",
+    ["Faible", "Moyenne", "Élevée"]
+)
 
-if temps_libre > 5:
-    st.success("Beaucoup de temps → stream / création")
-elif temps_libre > 2:
-    st.info("Temps moyen → tâches courtes")
+st.write(f"⏱ Temps libre : **{temps_libre}h**")
+st.write(f"🧠 Fatigue : **{fatigue}**")
+
+st.divider()
+
+# -------------------------
+# ACTIVITÉS
+# -------------------------
+
+st.subheader("🎯 Activités proposées")
+
+if "plan" not in st.session_state:
+    st.session_state.plan = []
+
+def add_activity(name):
+    if name not in st.session_state.plan:
+        st.session_state.plan.append(name)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("🎥 Stream"):
+        add_activity("Stream")
+
+    if st.button("🧾 Script"):
+        add_activity("Script")
+
+    if st.button("🏃 Sport"):
+        add_activity("Sport")
+
+with col2:
+    if st.button("✂ Montage"):
+        add_activity("Montage")
+
+    if st.button("🎬 Tournage"):
+        add_activity("Tournage")
+
+    if st.button("😴 Repos"):
+        add_activity("Repos")
+
+st.divider()
+
+# -------------------------
+# PLAN FINAL
+# -------------------------
+
+st.subheader("📋 Ton plan du jour")
+
+if len(st.session_state.plan) == 0:
+    st.info("Aucune activité sélectionnée pour le moment.")
 else:
-    st.warning("Peu de temps → repos conseillé")
+    for item in st.session_state.plan:
+        st.write(f"✔ {item}")
+
+if st.button("🗑 Reset planning"):
+    st.session_state.plan = []
