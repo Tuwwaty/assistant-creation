@@ -6,7 +6,7 @@ from collections import defaultdict
 
 st.set_page_config(page_title="Assistant de création", layout="centered")
 
-st.title("🧠 Assistant de création - V5 (planning semaine lisible)")
+st.title("🧠 Assistant de création - V6 (planning fiable)")
 
 # =====================================================
 # 📅 iCal INPUT
@@ -33,19 +33,35 @@ def parse_ical(data):
                 events.append(current)
             current = {}
 
-def parse_hour(t):
-    match = re.search(r"T(\d{2})(\d{2})", t)
-    if match:
-        return int(match.group(1)) + int(match.group(2)) / 60
-    return None
+# =====================================================
+# 🧠 PARSING SAFE
+# =====================================================
 
-def get_weekday(date_str):
-    # YYYYMMDD → weekday
+def parse_hour(t):
     try:
-        dt = datetime.strptime(date_str[:8], "%Y%m%d")
-        return dt.weekday()  # 0 = lundi
+        match = re.search(r"T(\d{2})(\d{2})", t)
+        if match:
+            return int(match.group(1)) + int(match.group(2)) / 60
     except:
         return None
+
+def get_weekday(date_str):
+    try:
+        clean = date_str.split("T")[0]
+        dt = datetime.strptime(clean[:8], "%Y%m%d")
+        return dt.weekday()
+    except:
+        return None
+
+def compute_duration(start, end):
+    # 🔥 FIX IMPORTANT : gestion minuit
+    if end < start:
+        end += 24
+    return max(0, end - start)
+
+# =====================================================
+# 📥 FETCH iCal
+# =====================================================
 
 work_by_day = defaultdict(list)
 total_hours = 0
@@ -61,21 +77,31 @@ if ical_url:
                 start = parse_hour(e["start"])
                 end = parse_hour(e["end"])
 
-                if start is not None and end is not None:
-                    duration = max(0, end - start)
-                    total_hours += duration
+                if start is None or end is None:
+                    continue
 
-                    day = get_weekday(e["start"])
-                    if day is not None:
-                        work_by_day[day].append((start, end))
+                duration = compute_duration(start, end)
 
-            st.success("✔ Planning chargé")
+                total_hours += duration
+
+                day = get_weekday(e["start"])
+                if day is not None:
+                    work_by_day[day].append({
+                        "start": start,
+                        "end": end,
+                        "duration": duration
+                    })
+
+            st.success("✔ Planning chargé correctement")
+
+        else:
+            st.error("Erreur chargement iCal")
 
     except Exception as e:
         st.error(e)
 
 # =====================================================
-# 📅 AFFICHAGE 7 JOURS
+# 📅 AFFICHAGE SEMAINE
 # =====================================================
 
 st.subheader("📊 Planning semaine")
@@ -85,13 +111,17 @@ days = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 for i in range(7):
 
     if i in work_by_day:
+
         shifts = work_by_day[i]
 
-        # fusion simple (on prend min start / max end)
-        start = min(s[0] for s in shifts)
-        end = max(s[1] for s in shifts)
+        start = min(s["start"] for s in shifts)
+        end = max(s["end"] for s in shifts)
 
-        st.write(f"📅 {days[i]} : {start:.0f}h - {end:.0f}h")
+        # affichage propre
+        start_h = f"{int(start):02d}h"
+        end_h = f"{int(end)%24:02d}h"
+
+        st.write(f"📅 {days[i]} : {start_h} - {end_h}")
 
     else:
         st.write(f"📅 {days[i]} : OFF")
@@ -102,7 +132,12 @@ st.divider()
 # 📊 CONTEXTE
 # =====================================================
 
-fatigue = st.selectbox("Fatigue", ["Faible", "Moyenne", "Élevée"])
+st.subheader("📊 Contexte")
+
+fatigue = st.selectbox(
+    "Fatigue",
+    ["Faible", "Moyenne", "Élevée"]
+)
 
 temps_jour = st.number_input("Temps total journée (h)", 0.0, 24.0, 24.0)
 
@@ -110,3 +145,68 @@ temps_libre = max(0, temps_jour - total_hours)
 
 st.write(f"⏱ Travail total semaine : **{total_hours:.2f}h**")
 st.write(f"🕒 Temps libre estimé : **{temps_libre:.2f}h**")
+
+# =====================================================
+# 🧠 ACTIVITÉS
+# =====================================================
+
+activities = [
+    {"name": "Stream Chill", "energy": "faible", "type": "stream"},
+    {"name": "Stream Normal", "energy": "moyenne", "type": "stream"},
+    {"name": "Gros Stream", "energy": "haute", "type": "stream"},
+    {"name": "Montage", "energy": "haute", "type": "focus"},
+    {"name": "Script", "energy": "moyenne", "type": "focus"},
+    {"name": "Tournage", "energy": "haute", "type": "focus"},
+    {"name": "Sport", "energy": "moyenne", "type": "physique"},
+    {"name": "Repos", "energy": "faible", "type": "recup"},
+]
+
+def energy_level(f):
+    return {
+        "Faible": "haute",
+        "Moyenne": "moyenne",
+        "Élevée": "faible"
+    }[f]
+
+
+def score(a):
+    s = 0
+    user_energy = energy_level(fatigue)
+
+    if temps_libre < 2 and a["type"] == "stream":
+        return -999
+
+    if a["energy"] == user_energy:
+        s += 40
+    elif a["energy"] == "faible":
+        s += 10
+    else:
+        s -= 20
+
+    if a["type"] == "stream":
+        s += 15
+
+    if a["type"] == "recup" and fatigue == "Élevée":
+        s += 30
+
+    return s
+
+
+st.subheader("🎯 Suggestions")
+
+ranked = [(a["name"], score(a)) for a in activities]
+ranked.sort(key=lambda x: x[1], reverse=True)
+
+for name, s in ranked:
+    if s > 0:
+        st.write(f"⭐ {name} — score {s}")
+
+st.divider()
+
+# =====================================================
+# 📦 DEBUG
+# =====================================================
+
+st.subheader("📦 Debug")
+
+st.write(f"Nombre d'événements : {len(events)}")
