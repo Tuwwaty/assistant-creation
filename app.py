@@ -5,7 +5,7 @@ st.set_page_config(page_title="Assistant de création", layout="centered")
 st.title("🧠 Assistant de création - V2")
 
 # -------------------------
-# CONTEXTE (simple V1.5)
+# CONTEXTE
 # -------------------------
 
 st.subheader("📊 Contexte du jour")
@@ -23,53 +23,71 @@ st.write(f"🧠 Fatigue : **{fatigue}**")
 st.divider()
 
 # -------------------------
-# ACTIVITÉS
+# ACTIVITÉS (SUGGESTIONS)
 # -------------------------
 
-st.subheader("🎯 Activités proposées")
+st.subheader("🎯 Suggestions")
 
-if "plan" not in st.session_state:
-    st.session_state.plan = []
+activities = [
+    "Stream",
+    "Montage",
+    "Script",
+    "Tournage",
+    "Sport",
+    "Repos"
+]
 
-def add_activity(name):
-    if name not in st.session_state.plan:
-        st.session_state.plan.append(name)
+def is_recommended(activity, fatigue, time_available):
+    # logique simple mais efficace
+    if time_available < 1 and activity not in ["Repos", "Sport"]:
+        return False
 
-col1, col2 = st.columns(2)
+    if fatigue == "Élevée":
+        if activity in ["Montage", "Tournage"]:
+            return False
 
-with col1:
-    if st.button("🎥 Stream"):
-        add_activity("Stream")
+    if fatigue == "Moyenne":
+        if activity == "Montage" and time_available < 3:
+            return False
 
-    if st.button("🧾 Script"):
-        add_activity("Script")
+    return True
 
-    if st.button("🏃 Sport"):
-        add_activity("Sport")
+recommended = []
 
-with col2:
-    if st.button("✂ Montage"):
-        add_activity("Montage")
+for act in activities:
+    if is_recommended(act, fatigue, temps_libre):
+        recommended.append(act)
+        st.write(f"✔ {act}")
 
-    if st.button("🎬 Tournage"):
-        add_activity("Tournage")
-
-    if st.button("😴 Repos"):
-        add_activity("Repos")
+if len(recommended) == 0:
+    st.info("Aucune activité idéale aujourd'hui → privilégie le repos ou des tâches légères.")
 
 st.divider()
 
 # -------------------------
-# PLAN FINAL
+# PLANNING MANUEL
 # -------------------------
 
-st.subheader("📋 Ton plan du jour")
+st.subheader("📋 Ton planning")
+
+if "plan" not in st.session_state:
+    st.session_state.plan = []
+
+def add_to_plan(activity):
+    if activity not in st.session_state.plan:
+        st.session_state.plan.append(activity)
+
+for act in activities:
+    if st.button(f"➕ Ajouter {act}"):
+        add_to_plan(act)
+
+st.write("### Plan actuel :")
 
 if len(st.session_state.plan) == 0:
-    st.info("Aucune activité sélectionnée pour le moment.")
+    st.info("Aucune activité ajoutée.")
 else:
     for item in st.session_state.plan:
-        st.write(f"✔ {item}")
+        st.write(f"• {item}")
 
 if st.button("🗑 Reset planning"):
     st.session_state.plan = []
