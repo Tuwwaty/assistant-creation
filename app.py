@@ -6,15 +6,15 @@ from collections import defaultdict
 
 st.set_page_config(page_title="Assistant de création", layout="centered")
 
-st.title("🧠 Assistant de création - V6 (planning fiable)")
+st.title("🧠 Assistant de création - V7 (Google Agenda)")
 
 # =====================================================
-# 📅 iCal INPUT
+# 📅 INPUT GOOGLE CALENDAR (ICAL LINK)
 # =====================================================
 
-st.subheader("📅 iCal Strobbo")
+st.subheader("📅 Synchronisation Google Agenda (iCal)")
 
-ical_url = st.text_input("Lien iCal")
+ical_url = st.text_input("Lien iCal Google Agenda")
 
 events = []
 
@@ -34,7 +34,7 @@ def parse_ical(data):
             current = {}
 
 # =====================================================
-# 🧠 PARSING SAFE
+# 🧠 PARSING ROBUSTE
 # =====================================================
 
 def parse_hour(t):
@@ -45,7 +45,7 @@ def parse_hour(t):
     except:
         return None
 
-def get_weekday(date_str):
+def get_day(date_str):
     try:
         clean = date_str.split("T")[0]
         dt = datetime.strptime(clean[:8], "%Y%m%d")
@@ -54,17 +54,17 @@ def get_weekday(date_str):
         return None
 
 def compute_duration(start, end):
-    # 🔥 FIX IMPORTANT : gestion minuit
+    # 🔥 gestion minuit
     if end < start:
         end += 24
     return max(0, end - start)
 
 # =====================================================
-# 📥 FETCH iCal
+# 📥 LOAD CALENDAR
 # =====================================================
 
 work_by_day = defaultdict(list)
-total_hours = 0
+total_work = 0
 
 if ical_url:
     try:
@@ -81,10 +81,10 @@ if ical_url:
                     continue
 
                 duration = compute_duration(start, end)
+                total_work += duration
 
-                total_hours += duration
+                day = get_day(e["start"])
 
-                day = get_weekday(e["start"])
                 if day is not None:
                     work_by_day[day].append({
                         "start": start,
@@ -92,21 +92,21 @@ if ical_url:
                         "duration": duration
                     })
 
-            st.success("✔ Planning chargé correctement")
+            st.success("✔ Google Agenda chargé")
 
         else:
-            st.error("Erreur chargement iCal")
+            st.error("Erreur chargement calendrier")
 
     except Exception as e:
         st.error(e)
 
 # =====================================================
-# 📅 AFFICHAGE SEMAINE
+# 📅 AFFICHAGE 7 JOURS PROPRE
 # =====================================================
 
 st.subheader("📊 Planning semaine")
 
-days = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+days = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
 
 for i in range(7):
 
@@ -114,14 +114,18 @@ for i in range(7):
 
         shifts = work_by_day[i]
 
-        start = min(s["start"] for s in shifts)
-        end = max(s["end"] for s in shifts)
+        parts = []
 
-        # affichage propre
-        start_h = f"{int(start):02d}h"
-        end_h = f"{int(end)%24:02d}h"
+        for s in shifts:
+            sh = int(s["start"])
+            sm = int((s["start"] % 1) * 60)
 
-        st.write(f"📅 {days[i]} : {start_h} - {end_h}")
+            eh = int(s["end"] % 24)
+            em = int((s["end"] % 1) * 60)
+
+            parts.append(f"{sh:02d}h{sm:02d}-{eh:02d}h{em:02d}")
+
+        st.write(f"📅 {days[i]} : " + " | ".join(parts))
 
     else:
         st.write(f"📅 {days[i]} : OFF")
@@ -129,84 +133,72 @@ for i in range(7):
 st.divider()
 
 # =====================================================
-# 📊 CONTEXTE
+# 📊 STATS
 # =====================================================
 
-st.subheader("📊 Contexte")
+st.subheader("📊 Analyse")
 
-fatigue = st.selectbox(
-    "Fatigue",
-    ["Faible", "Moyenne", "Élevée"]
-)
+fatigue = st.selectbox("Fatigue", ["Faible","Moyenne","Élevée"])
 
 temps_jour = st.number_input("Temps total journée (h)", 0.0, 24.0, 24.0)
 
-temps_libre = max(0, temps_jour - total_hours)
+temps_libre = max(0, temps_jour - total_work)
 
-st.write(f"⏱ Travail total semaine : **{total_hours:.2f}h**")
+st.write(f"⏱ Travail total semaine : **{total_work:.2f}h**")
 st.write(f"🕒 Temps libre estimé : **{temps_libre:.2f}h**")
 
 # =====================================================
-# 🧠 ACTIVITÉS
+# 🎯 ACTIVITÉS SIMPLES (BASE IA FUTURE)
 # =====================================================
 
 activities = [
-    {"name": "Stream Chill", "energy": "faible", "type": "stream"},
-    {"name": "Stream Normal", "energy": "moyenne", "type": "stream"},
-    {"name": "Gros Stream", "energy": "haute", "type": "stream"},
-    {"name": "Montage", "energy": "haute", "type": "focus"},
-    {"name": "Script", "energy": "moyenne", "type": "focus"},
-    {"name": "Tournage", "energy": "haute", "type": "focus"},
-    {"name": "Sport", "energy": "moyenne", "type": "physique"},
-    {"name": "Repos", "energy": "faible", "type": "recup"},
+    {"name":"Stream Chill","energy":"faible"},
+    {"name":"Stream Normal","energy":"moyenne"},
+    {"name":"Gros Stream","energy":"haute"},
+    {"name":"Montage","energy":"haute"},
+    {"name":"Script","energy":"moyenne"},
+    {"name":"Tournage","energy":"haute"},
+    {"name":"Sport","energy":"moyenne"},
+    {"name":"Repos","energy":"faible"}
 ]
 
 def energy_level(f):
-    return {
-        "Faible": "haute",
-        "Moyenne": "moyenne",
-        "Élevée": "faible"
-    }[f]
-
+    return {"Faible":"haute","Moyenne":"moyenne","Élevée":"faible"}[f]
 
 def score(a):
     s = 0
-    user_energy = energy_level(fatigue)
+    user = energy_level(fatigue)
 
-    if temps_libre < 2 and a["type"] == "stream":
+    if temps_libre < 2 and "Stream" in a["name"]:
         return -999
 
-    if a["energy"] == user_energy:
+    if a["energy"] == user:
         s += 40
     elif a["energy"] == "faible":
         s += 10
     else:
         s -= 20
 
-    if a["type"] == "stream":
+    if "Stream" in a["name"]:
         s += 15
-
-    if a["type"] == "recup" and fatigue == "Élevée":
-        s += 30
 
     return s
 
-
 st.subheader("🎯 Suggestions")
 
-ranked = [(a["name"], score(a)) for a in activities]
-ranked.sort(key=lambda x: x[1], reverse=True)
+ranked = sorted([(a["name"], score(a)) for a in activities], key=lambda x: x[1], reverse=True)
 
 for name, s in ranked:
     if s > 0:
-        st.write(f"⭐ {name} — score {s}")
+        st.write(f"⭐ {name} — {s}")
 
 st.divider()
 
 # =====================================================
-# 📦 DEBUG
+# DEBUG
 # =====================================================
 
 st.subheader("📦 Debug")
 
-st.write(f"Nombre d'événements : {len(events)}")
+st.write(f"Événements détectés : {len(events)}")
+st.write(work_by_day)
