@@ -1,71 +1,99 @@
 import streamlit as st
+import requests
+from datetime import datetime
+import re
 
 st.set_page_config(page_title="Assistant de création", layout="centered")
 
-st.title("🧠 Assistant de création - V1 globale")
+st.title("🧠 Assistant de création - V3 iCal")
 
 # =====================================================
-# 📊 CONTEXTE JOURNÉE
+# 📅 iCal INPUT
 # =====================================================
 
-st.subheader("📊 Contexte du jour")
+st.subheader("📅 Synchronisation planning")
 
-temps_libre = st.number_input("Temps libre estimé (heures)", 0.0, 12.0, 4.0)
+ical_url = st.text_input("Lien iCal (Strobbo)")
+
+events = []
+
+def parse_ical(data):
+    """Extraction simple des événements iCal"""
+    lines = data.splitlines()
+
+    current_event = {}
+
+    for line in lines:
+        if "DTSTART" in line:
+            current_event["start"] = line.split(":")[-1]
+        elif "DTEND" in line:
+            current_event["end"] = line.split(":")[-1]
+
+        if line.strip() == "END:VEVENT":
+            if "start" in current_event and "end" in current_event:
+                events.append(current_event)
+            current_event = {}
+
+def convert_time(ical_time):
+    """Convertit format iCal en heure simple"""
+    match = re.search(r"T(\d{2})(\d{2})", ical_time)
+    if match:
+        return int(match.group(1)) + int(match.group(2)) / 60
+    return 0
+
+work_hours = 0
+
+if ical_url:
+    try:
+        res = requests.get(ical_url)
+        if res.status_code == 200:
+            parse_ical(res.text)
+
+            for e in events:
+                start = convert_time(e["start"])
+                end = convert_time(e["end"])
+                work_hours += (end - start)
+
+            st.success("✔ Calendrier chargé")
+        else:
+            st.error("Erreur de chargement iCal")
+
+    except Exception as e:
+        st.error(f"Erreur : {e}")
+
+# =====================================================
+# 📊 CONTEXTE
+# =====================================================
+
+st.subheader("📊 Analyse automatique")
 
 fatigue = st.selectbox(
     "Niveau de fatigue",
     ["Faible", "Moyenne", "Élevée"]
 )
 
-shift = st.selectbox(
-    "Type de journée",
-    ["Jour normal", "Travail soir"]
-)
+temps_total_jour = st.number_input("Temps total dans la journée (h)", 0.0, 24.0, 24.0)
 
-shift_start = None
-shift_end = None
+temps_libre = max(0, temps_total_jour - work_hours)
 
-if shift == "Travail soir":
-    shift_start = st.number_input("Heure début shift (ex: 18)", 0, 23, 18)
-    shift_end = st.number_input("Heure fin shift (ex: 22)", 0, 23, 22)
-
-# =====================================================
-# ⛔ CONTRAINTES RÉELLES
-# =====================================================
-
-blocked_time = 0
-
-if shift == "Travail soir":
-    blocked_time += 0.67  # trajet 40 min
-    shift_duration = shift_end - shift_start
-
-    # repas contextuel
-    if shift_duration <= 3:
-        meal_before = False
-        meal_after = True
-    else:
-        meal_before = True
-        blocked_time += 1  # repas avant départ
-
-temps_libre_reel = max(0, temps_libre - blocked_time)
-
-st.write(f"⏱ Temps libre réel : **{temps_libre_reel:.2f}h**")
+st.write(f"⏱ Travail total : **{work_hours:.2f}h**")
+st.write(f"🕒 Temps libre réel : **{temps_libre:.2f}h**")
 
 st.divider()
 
 # =====================================================
-# 🎯 ACTIVITÉS & SCORING
+# 🧠 ACTIVITÉS INTELLIGENTES
 # =====================================================
 
 activities = [
-    {"name": "Stream Chill", "type": "stream", "energy": "faible"},
-    {"name": "Stream Normal", "type": "stream", "energy": "moyenne"},
-    {"name": "Gros Stream", "type": "stream", "energy": "haute"},
-    {"name": "Montage", "type": "focus"},
-    {"name": "Script", "type": "focus"},
-    {"name": "Tournage", "type": "focus"},
-    {"name": "Sport", "type": "physique"},
-    {"name": "Repos", "type": "recup"}
+    {"name": "Stream Chill", "energy": "faible", "type": "stream"},
+    {"name": "Stream Normal", "energy": "moyenne", "type": "stream"},
+    {"name": "Gros Stream", "energy": "haute", "type": "stream"},
+    {"name": "Montage", "energy": "haute", "type": "focus"},
+    {"name": "Script", "energy": "moyenne", "type": "focus"},
+    {"name": "Tournage", "energy": "haute", "type": "focus"},
+    {"name": "Sport", "energy": "moyenne", "type": "physique"},
+    {"name": "Repos", "energy": "faible", "type": "recup"},
 ]
 
 def energy_level(fatigue):
@@ -78,34 +106,29 @@ def energy_level(fatigue):
 
 
 def score(activity):
-
     score = 0
     user_energy = energy_level(fatigue)
 
-    # temps
-    if temps_libre_reel < 1:
-        score -= 50
-    elif temps_libre_reel >= 3:
-        score += 30
+    # temps dispo
+    if temps_libre < 2 and activity["type"] == "stream":
+        return -999
 
-    # énergie match
-    if activity.get("energy") == user_energy:
-        score += 40
-    elif activity.get("energy") == "faible" and user_energy == "moyenne":
+    if temps_libre >= 3:
         score += 20
+
+    # énergie
+    if activity["energy"] == user_energy:
+        score += 40
+    elif activity["energy"] == "faible":
+        score += 10
     else:
         score -= 20
 
-    # règles stream
+    # bonus stream régulier
     if activity["type"] == "stream":
-        if temps_libre_reel < 2:
-            return -999  # interdit
-        elif temps_libre_reel < 3:
-            score -= 10
-        else:
-            score += 20
+        score += 10
 
-    # repos logique
+    # repos si fatigue élevée
     if activity["type"] == "recup" and fatigue == "Élevée":
         score += 30
 
@@ -129,86 +152,9 @@ for name, s in ranked:
 st.divider()
 
 # =====================================================
-# 📦 PROJETS (CONTINUITÉ)
+# 📦 INFO DEBUG
 # =====================================================
 
-st.subheader("📦 Projet en cours")
+st.subheader("📦 Debug planning")
 
-if "project" not in st.session_state:
-    st.session_state.project = {
-        "nom": "Vidéo principale",
-        "étapes": ["Script", "Tournage", "Montage"],
-        "étape": 0,
-        "script_done": False
-    }
-
-project = st.session_state.project
-
-st.write(f"🎬 {project['nom']}")
-st.write(f"Étape actuelle : **{project['étapes'][project['étape']]}**")
-
-if st.button("✔ Étape terminée"):
-    project["étape"] += 1
-
-    if project["étape"] >= len(project["étapes"]):
-        st.success("🎉 Projet terminé !")
-        project["étape"] = 0
-    else:
-        st.info(f"Prochaine étape : {project['étapes'][project['étape']]}")
-
-st.divider()
-
-# =====================================================
-# 🔁 OBJECTIF RÉCURRENT
-# =====================================================
-
-st.subheader("🔁 Objectif hebdo")
-
-if "stream_count" not in st.session_state:
-    st.session_state.stream_count = 0
-
-target_stream = 2
-
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("➕ Stream réalisé"):
-        st.session_state.stream_count += 1
-
-with col2:
-    st.write(f"Streams cette semaine : **{st.session_state.stream_count} / {target_stream}**")
-
-if st.session_state.stream_count < target_stream:
-    st.warning("⚠ Objectif stream pas encore atteint")
-else:
-    st.success("✔ Objectif stream atteint")
-
-st.divider()
-
-# =====================================================
-# 📋 PLANNING MANUEL
-# =====================================================
-
-st.subheader("📋 Planning manuel")
-
-if "plan" not in st.session_state:
-    st.session_state.plan = []
-
-def add(name):
-    if name not in st.session_state.plan:
-        st.session_state.plan.append(name)
-
-for act in activities:
-    if st.button(f"➕ {act['name']}"):
-        add(act["name"])
-
-st.write("### Ton plan")
-
-if len(st.session_state.plan) == 0:
-    st.info("Rien pour le moment")
-else:
-    for item in st.session_state.plan:
-        st.write(f"• {item}")
-
-if st.button("🗑 Reset"):
-    st.session_state.plan = []
+st.write(f"Nombre d'événements détectés : {len(events)}")
